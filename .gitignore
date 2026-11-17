@@ -1,0 +1,8 @@
+vapid-keys.local.txt
+.DS_Store
+.claude/
+.cloudflare-token
+print/
+.cloudflare-account
+__pycache__/
+*.pyc
