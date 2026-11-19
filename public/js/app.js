@@ -322,20 +322,28 @@ async function loadTicker() {
   if (!box) return;
   clearTimeout(tickerTimer);
   tickerTimer = setTimeout(loadTicker, 5 * 60e3);
-  let items;
-  try { items = await backend.ticker(); } catch { return; }
-  if (!items?.length) { box.hidden = true; return; }
+  let items, senior = [];
+  try {
+    [items, senior] = await Promise.all([backend.ticker(), backend.seniorLive?.().catch(() => []) ?? []]);
+  } catch { return; }
+  items = items || [];
+  if (!items.length && !senior.length) { box.hidden = true; return; }
   // Keep the "today" count first; shuffle the rest so it feels fresh each refresh.
-  const [lead, ...rest] = items;
+  const [lead, ...rest] = items.length ? items : [senior.map(seniorTick).shift()];
   for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
-  const html = [lead, ...rest].map((t) => `<a class="tick" href="${esc(t.href || "#/")}"><span class="tick-icon">${esc(t.icon)}</span>${esc(t.text)}</a>`).join('<span class="tick-sep">•</span>');
+  // Spread senior messages evenly through the stats so they keep coming around.
+  const sen = (items.length ? senior : senior.slice(1)).map(seniorTick);
+  const list = [lead];
+  const gap = Math.max(1, Math.round(rest.length / (sen.length + 1)));
+  rest.forEach((t, i) => { list.push(t); if ((i + 1) % gap === 0 && sen.length) list.push(sen.shift()); });
+  list.push(...sen);
+  const html = list.map(tickHTML).join('<span class="tick-sep">•</span>');
   box.hidden = false;
   clearInterval(tickerFade);
   if (reduceMotion()) {
     // No scrolling: show one item at a time.
-    const list = [lead, ...rest];
     let i = 0;
-    const show = () => { const t = list[i++ % list.length]; track.innerHTML = `<a class="tick" href="${esc(t.href || "#/")}"><span class="tick-icon">${esc(t.icon)}</span>${esc(t.text)}</a>`; };
+    const show = () => { track.innerHTML = tickHTML(list[i++ % list.length]); };
     track.classList.add("static"); show(); tickerFade = setInterval(show, 4500);
     return;
   }
@@ -346,6 +354,18 @@ async function loadTicker() {
     const w = track.firstElementChild?.getBoundingClientRect().width || 600;
     track.style.setProperty("--ticker-dur", `${Math.max(20, w / 45)}s`);
   });
+}
+
+// Senior messages: anonymous, in gold, under a rotating "official" label.
+const SENIOR_LABELS = ["Public service announcement", "Message from your elders", "Word from the top",
+  "The elders have spoken", "Senior advisory", "Hear ye, hear ye"];
+function seniorTick(p) {
+  let h = 0; for (const c of String(p.id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return { senior: true, label: SENIOR_LABELS[h % SENIOR_LABELS.length], text: p.body };
+}
+function tickHTML(t) {
+  if (t.senior) return `<span class="tick senior"><span class="tick-icon">📢</span><b>${esc(t.label)}:</b> ${esc(t.text)}</span>`;
+  return `<a class="tick" href="${esc(t.href || "#/")}"><span class="tick-icon">${esc(t.icon)}</span>${esc(t.text)}</a>`;
 }
 
 function setupTickerPause() {
@@ -1264,11 +1284,65 @@ function renderBrothers(view) {
 }
 
 // ── Profile ────────────────────────────────────────────────
+// Seniors' box at the top of their own profile: one anonymous ticker message, live for 24h.
+async function renderSeniorBox(box, alive) {
+  let st;
+  try { st = await backend.seniorStatus(); } catch { return; }
+  if (!alive() || !st?.is_senior) return;
+  const left = (iso) => {
+    const m = Math.max(0, Math.round((new Date(iso) - Date.now()) / 60e3));
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m left`;
+  };
+  const draw = (post, editing = false) => {
+    if (post && !editing) {
+      box.innerHTML = `<div class="senior-box">
+        <div class="sb-head"><span>📢 Your message is live</span><span class="sb-time">${left(post.expires_at)}</span></div>
+        <p class="sb-live">“${esc(post.body)}”</p>
+        <div class="sb-sub">Scrolling in everyone's ticker. Nobody can see it's from you.</div>
+        <div class="sb-actions"><button class="btn small" id="sb-replace">Replace it</button><button class="btn small danger" id="sb-down">Take it down</button></div>
+      </div>`;
+      box.querySelector("#sb-replace").onclick = () => draw(post, true);
+      box.querySelector("#sb-down").onclick = async () => {
+        if (!confirm("Take your message off the ticker?")) return;
+        try { await backend.seniorWithdraw(); draw(null); loadTicker(); toast("Taken down"); } catch (x) { toast(x.message); }
+      };
+      return;
+    }
+    box.innerHTML = `<div class="senior-box">
+      <div class="sb-head"><span>📢 Message from your elders</span><span class="pill">Seniors only</span></div>
+      <div class="sb-sub">Anonymous. It scrolls across everyone's feed for 24 hours.${post ? " Posting replaces your current message." : ""}</div>
+      <textarea class="input" id="sb-text" maxlength="140" rows="3" placeholder="Say what needs to be said…"></textarea>
+      <div class="sb-actions"><span class="sb-count" id="sb-count">140</span>
+        ${post ? '<button class="btn small" id="sb-cancel">Cancel</button>' : ""}
+        <button class="btn small primary" id="sb-post" disabled>Post to the ticker</button></div>
+      <p class="err" id="sb-err"></p>
+    </div>`;
+    const ta = box.querySelector("#sb-text"), btn = box.querySelector("#sb-post"), count = box.querySelector("#sb-count");
+    ta.oninput = () => {
+      const n = ta.value.trim().length;
+      count.textContent = 140 - ta.value.length;
+      count.classList.toggle("low", ta.value.length > 120);
+      btn.disabled = !n;
+    };
+    box.querySelector("#sb-cancel")?.addEventListener("click", () => draw(post));
+    btn.onclick = async () => {
+      btn.disabled = true;
+      box.querySelector("#sb-err").textContent = "";
+      try {
+        const p = await backend.seniorPost(ta.value);
+        draw(p); loadTicker(); toast("📢 It's on the ticker");
+      } catch (x) { box.querySelector("#sb-err").textContent = x.message; btn.disabled = false; }
+    };
+  };
+  draw(st.post || null);
+}
+
 async function renderProfile(view, id, alive) {
   if (!state.members.has(id)) { view.innerHTML = `<div class="page">${backBtn("#/")}</div><div class="empty"><div class="big">🫥</div>No brother here.</div>`; return; }
   const m = member(id), isMe = id === state.me;
   view.innerHTML = `
     <div class="page" style="padding-bottom:0">${backBtn("#/")}</div>
+    ${isMe ? '<div id="senior-box"></div>' : ""}
     <div class="profile-head">
       ${avatar(id, "lg")}
       <h1>${esc(m.display_name)}</h1>
@@ -1282,6 +1356,7 @@ async function renderProfile(view, id, alive) {
     <div class="seg profile-tabs" id="ptabs"><button data-v="by" class="on">${isMe ? "My snipes" : "Their snipes"}</button><button data-v="of">Caught in</button></div>
     <div id="pgrid"><div class="loading-more"><div class="spinner"></div></div></div>`;
   if (isMe) view.querySelector("#edit").onclick = openEditProfile;
+  if (isMe) renderSeniorBox(view.querySelector("#senior-box"), alive);
   backend.leaderboard(null).then((rows) => {
     if (!alive()) return;
     const r = rows.find((x) => x.user_id === id) ?? { snipes: 0, sniped: 0 };
@@ -1459,6 +1534,8 @@ async function renderRoster(view, alive) {
         <div class="sub">Anyone who signs in with this code is added to the roster. Share it in the GroupMe; change it if it leaks.</div></div>
       <div style="display:flex;gap:8px"><button class="btn small" id="jc-new">New code</button><button class="btn small" id="jc-off">Turn off</button></div>
     </div></div>
+    <div class="section-label">Live senior messages <span style="text-transform:none;letter-spacing:0;font-weight:500">· only admins see who wrote them</span></div>
+    <div class="group" id="sp-list"><div class="row"><span class="sub">Loading…</span></div></div>
     <div class="field"><label for="add">Add brothers by email</label>
       <textarea class="input" id="add" placeholder="Paste emails, one per line or comma-separated"></textarea></div>
     <button class="btn primary block" id="add-btn">Add to roster</button><p class="err" id="rerr"></p>
@@ -1484,24 +1561,51 @@ async function renderRoster(view, alive) {
     if (!confirm("Turn off the join code? New brothers will need to be added by email.")) return;
     try { await backend.setJoinCode(null); drawCode(null); toast("Join code off"); } catch (x) { toast(x.message); }
   };
-  const draw = async () => {
-    const rows = await backend.listRoster();
+  const spList = view.querySelector("#sp-list");
+  const drawSP = async () => {
+    let posts;
+    try { posts = await backend.seniorPostsAdmin(); } catch { spList.innerHTML = '<div class="row"><span class="sub">Not set up yet.</span></div>'; return; }
     if (!alive()) return;
+    spList.innerHTML = posts.length ? posts.map((p) => `
+      <div class="row" data-id="${esc(p.id)}"><div class="grow"><div>“${esc(p.body)}”</div>
+        <div class="sub">${esc(member(p.author_id).display_name)} · ${ago(p.created_at)} · ends ${new Date(p.expires_at).toLocaleTimeString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}</div></div>
+        <button class="btn small danger" data-act="sp-rm">Remove</button></div>`).join("")
+      : '<div class="row"><span class="sub">None right now.</span></div>';
+  };
+  spList.onclick = async (e) => {
+    const b = e.target.closest('[data-act="sp-rm"]'); if (!b) return;
+    if (!confirm("Take this message off the ticker for everyone?")) return;
+    try { await backend.seniorRemove(b.closest(".row").dataset.id); await drawSP(); loadTicker(); toast("Removed"); } catch (x) { toast(x.message); }
+  };
+  drawSP();
+  let seniorIds = new Set();
+  const draw = async () => {
+    const [rows, sIds] = await Promise.all([backend.listRoster(), backend.seniorList().catch(() => null)]);
+    if (!alive()) return;
+    seniorIds = new Set(sIds || []);
+    const byEmail = new Map(state.memberList.map((m) => [m.email, m.id]));
     const joined = new Set(state.memberList.map((m) => m.email));
     view.querySelector("#count").textContent = `${rows.length} on roster · ${rows.filter((r) => joined.has(r.email)).length} signed up`;
     listEl.innerHTML = rows.map((r) => `
-      <div class="row" data-email="${esc(r.email)}"><div class="grow"><div class="ellip">${esc(r.email)}</div>
-        <div class="sub">${joined.has(r.email) ? "Signed up" : "Hasn't signed in yet"}${r.via_code ? " · Joined with code" : ""}${r.is_admin ? " · Admin" : ""}</div></div>
-        <button class="btn small" data-act="admin">${r.is_admin ? "Remove admin" : "Make admin"}</button>
+      <div class="row" data-email="${esc(r.email)}"><div class="grow">${byEmail.has(r.email) ? `<div class="ellip">${esc(member(byEmail.get(r.email)).display_name)}</div><div class="sub ellip">${esc(r.email)}</div>` : `<div class="ellip">${esc(r.email)}</div>`}
+        <div class="sub">${joined.has(r.email) ? "Signed up" : "Hasn't signed in yet"}${r.via_code ? " · Joined with code" : ""}${r.is_admin ? " · Admin" : ""}${seniorIds.has(byEmail.get(r.email)) ? " · Senior" : ""}</div></div>
+        ${sIds && byEmail.has(r.email) ? `<button class="btn small ${seniorIds.has(byEmail.get(r.email)) ? "on-gold" : ""}" data-act="senior" data-uid="${esc(byEmail.get(r.email))}" aria-pressed="${seniorIds.has(byEmail.get(r.email))}">Senior</button>` : ""}
+        <button class="btn small ${r.is_admin ? "on-gold" : ""}" data-act="admin" aria-pressed="${!!r.is_admin}">Admin</button>
         <button class="btn small danger" data-act="rm" aria-label="Remove ${esc(r.email)}">✕</button></div>`).join("");
   };
   listEl.onclick = async (e) => {
     const b = e.target.closest("[data-act]"); if (!b) return;
     const email = b.closest(".row").dataset.email;
+    if (b.dataset.act === "senior") {
+      const on = !seniorIds.has(b.dataset.uid);
+      try { await backend.setSenior(b.dataset.uid, on); await draw(); if (!on) { drawSP(); loadTicker(); } toast(on ? "Marked as senior" : "No longer a senior"); }
+      catch (x) { toast(x.message); }
+      return;
+    }
     if (email === member(state.me).email) { toast("You can't change your own access here."); return; }
     try {
       if (b.dataset.act === "rm") { if (!confirm(`Remove ${email} from the roster?`)) return; await backend.removeFromRoster(email); }
-      else await backend.setRosterAdmin(email, b.textContent.startsWith("Make"));
+      else await backend.setRosterAdmin(email, b.getAttribute("aria-pressed") !== "true");
       await draw();
     } catch (x) { toast(x.message); }
   };

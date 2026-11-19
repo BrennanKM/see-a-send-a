@@ -124,6 +124,11 @@ export function createDemoBackend() {
   };
   const photo = (s) => (s.photo_url ??= scene(s._seed));
   let me = null;
+  const seniors = new Set(["u0", "u3"]);
+  const liveSP = (x) => !x.removed_at && new Date(x.expires_at) > new Date();
+  const seniorPosts = [
+    { id: "sp1", author_id: "u3", body: "Whoever keeps leaving the chapter room unlocked: we know. Fix it.", created_at: new Date(Date.now() - 3 * 36e5).toISOString(), expires_at: new Date(Date.now() + 21 * 36e5).toISOString(), removed_at: null },
+  ];
   const blackBox = [
     { id: "bb1", body: "Whoever keeps leaving the chapter room fridge door open: we know. We will find you.", dropped_on: iso(new Date(now - 2 * 864e5)), read_at: null },
     { id: "bb2", body: "Shoutout to the person who brought donuts to the last meeting. You're the real MVP.", dropped_on: iso(new Date(now - 864e5)), read_at: null },
@@ -259,6 +264,33 @@ export function createDemoBackend() {
       items.push({ icon: "📈", href: "#/leaders", text: `${snipes.length} snipes all time` });
       return items;
     },
+    // Senior messages: same rules as supabase/senior-ticker.sql. u0 (you) and u3 start as seniors.
+    async seniorLive() { return seniorPosts.filter(liveSP).map(({ id, body }) => ({ id, body })); },
+    async seniorStatus() {
+      if (!seniors.has(me)) return { is_senior: false };
+      const p = seniorPosts.find((x) => x.author_id === me && liveSP(x));
+      return { is_senior: true, post: p ? { id: p.id, body: p.body, expires_at: p.expires_at } : null };
+    },
+    async seniorPost(body) {
+      await wait();
+      if (!seniors.has(me)) throw new Error("Only seniors can post here.");
+      const b = body.replace(/\s+/g, " ").trim();
+      if (!b) throw new Error("Write something first.");
+      if (b.length > 140) throw new Error("Keep it to 140 characters.");
+      seniorPosts.filter((x) => x.author_id === me && liveSP(x)).forEach((x) => (x.removed_at = new Date().toISOString()));
+      const p = { id: `sp${Date.now()}`, author_id: me, body: b, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 864e5).toISOString(), removed_at: null };
+      seniorPosts.push(p);
+      return { id: p.id, body: p.body, expires_at: p.expires_at };
+    },
+    async seniorWithdraw() { seniorPosts.filter((x) => x.author_id === me && liveSP(x)).forEach((x) => (x.removed_at = new Date().toISOString())); },
+    async seniorList() { if (me !== "u0") throw new Error("admins_only"); return [...seniors]; },
+    async setSenior(userId, on) {
+      if (me !== "u0") throw new Error("admins_only");
+      if (on) seniors.add(userId);
+      else { seniors.delete(userId); seniorPosts.filter((x) => x.author_id === userId && liveSP(x)).forEach((x) => (x.removed_at = new Date().toISOString())); }
+    },
+    async seniorPostsAdmin() { if (me !== "u0") throw new Error("admins_only"); return seniorPosts.filter(liveSP).map(({ id, body, author_id, created_at, expires_at }) => ({ id, body, author_id, created_at, expires_at })); },
+    async seniorRemove(id) { const p = seniorPosts.find((x) => x.id === id); if (p) p.removed_at = new Date().toISOString(); },
     // Black box: no author stored, same as supabase/black-box.sql.
     async blackBoxDrop(body) {
       await wait();

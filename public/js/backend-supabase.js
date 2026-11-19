@@ -246,6 +246,45 @@ export function createSupabaseBackend(cfg) {
       return Array.isArray(data) ? data : [];
     },
 
+    // Senior messages (supabase/senior-ticker.sql). Authors are never sent to members.
+    async seniorLive() {
+      const { data, error } = await sb.rpc("senior_live");
+      if (error) throw error;
+      return data ?? [];
+    },
+    async seniorStatus() {
+      const { data, error } = await sb.rpc("senior_status");
+      if (error) throw error;
+      return data ?? { is_senior: false };
+    },
+    async seniorPost(body) {
+      const { data, error } = await sb.rpc("senior_post", { p_body: body });
+      if (error) throw new Error(/too_long/.test(error.message) ? "Keep it to 140 characters." : /empty/.test(error.message) ? "Write something first." : /seniors_only/.test(error.message) ? "Only seniors can post here." : error.message);
+      return data;
+    },
+    async seniorWithdraw() {
+      const { error } = await sb.rpc("senior_withdraw");
+      if (error) throw error;
+    },
+    async seniorList() {
+      const { data, error } = await sb.rpc("senior_list");
+      if (error) throw error;
+      return (data ?? []).map((r) => r.user_id);
+    },
+    async setSenior(userId, on) {
+      const { error } = await sb.rpc("set_senior", { p_user: userId, p_on: on });
+      if (error) throw error;
+    },
+    async seniorPostsAdmin() {
+      const { data, error } = await sb.rpc("senior_posts_admin");
+      if (error) throw error;
+      return data ?? [];
+    },
+    async seniorRemove(id) {
+      const { error } = await sb.rpc("senior_remove", { p_id: id });
+      if (error) throw error;
+    },
+
     async blackBoxDrop(body) {
       const { error } = await sb.rpc("black_box_drop", { p_body: body });
       if (error) throw new Error(/too_long/.test(error.message) ? "Keep it under 1,000 characters." : /empty/.test(error.message) ? "Write something first." : error.message);
