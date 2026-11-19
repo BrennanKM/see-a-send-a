@@ -313,15 +313,35 @@ function renderShell() {
 
 // ── Ticker ─────────────────────────────────────────────────
 // A news-style crawl under the header that shows only the seniors' anonymous messages
-// (supabase/senior-ticker.sql), in gold under a rotating "official" label. It's hidden
-// when there are none, and refreshed every few minutes and whenever the app comes back.
+// (supabase/senior-ticker.sql), in gold under a rotating "official" label, padded with a few
+// placeholder lines while fewer than TICKER_FULL are live. Refreshed every few minutes and
+// whenever the app comes back.
 let tickerTimer = null, tickerFade = null, tickerSig = "";
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const SENIOR_LABELS = ["Public service announcement", "Message from your elders", "Word from the top",
   "The elders have spoken", "Senior advisory", "Hear ye, hear ye"];
 function tickHTML(p) {
-  let h = 0; for (const c of String(p.id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  let h = p.label ?? 0;
+  if (p.label == null) for (const c of String(p.id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return `<span class="tick senior"><span class="tick-icon">📢</span><b>${esc(SENIOR_LABELS[h % SENIOR_LABELS.length])}:</b> ${esc(p.body)}</span>`;
+}
+// Stand-ins so one or two real messages don't loop on their own. They look like any other
+// message and drop out once TICKER_FULL real ones are live at the same time.
+const TICKER_PLACEHOLDERS = [
+  { id: "placeholder-1", label: 1, body: "there are big shoes to fill. Who will fill them?" },
+  { id: "placeholder-2", label: 2, body: "yeah ok pal" },
+  { id: "placeholder-3", label: 5, body: "wow what is this hiiiiiii" },
+];
+const TICKER_FULL = 4;
+function tickerList(real) {
+  if (real.length >= TICKER_FULL) return real;
+  // A real message, then a placeholder, and so on.
+  const list = [];
+  for (let i = 0; i < Math.max(real.length, TICKER_PLACEHOLDERS.length); i++) {
+    if (real[i]) list.push(real[i]);
+    if (TICKER_PLACEHOLDERS[i]) list.push(TICKER_PLACEHOLDERS[i]);
+  }
+  return list;
 }
 
 async function loadTicker() {
@@ -329,9 +349,10 @@ async function loadTicker() {
   if (!box) return;
   clearTimeout(tickerTimer);
   tickerTimer = setTimeout(loadTicker, 5 * 60e3);
-  let list;
-  try { list = await backend.seniorLive(); } catch { return; }
-  if (!list?.length) { clearInterval(tickerFade); tickerSig = ""; box.hidden = true; track.innerHTML = ""; return; }
+  let real;
+  try { real = (await backend.seniorLive()) || []; } catch { return; }
+  const list = tickerList(real);
+  if (!list.length) { clearInterval(tickerFade); tickerSig = ""; box.hidden = true; track.innerHTML = ""; return; }
   // Nothing new since the last look: leave the crawl running where it is.
   const sig = JSON.stringify([list.map((p) => [p.id, p.body]), innerWidth, reduceMotion()]);
   if (sig === tickerSig && !box.hidden) return;
