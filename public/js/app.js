@@ -324,7 +324,8 @@ async function loadTicker() {
   tickerTimer = setTimeout(loadTicker, 5 * 60e3);
   let items, senior = [];
   try {
-    [items, senior] = await Promise.all([backend.ticker(), backend.seniorLive?.().catch(() => []) ?? []]);
+    // Either half can fail on its own; show whatever loaded.
+    [items, senior] = await Promise.all([backend.ticker().catch(() => []), backend.seniorLive?.().catch(() => []) ?? []]);
   } catch { return; }
   items = items || [];
   if (!items.length && !senior.length) { box.hidden = true; return; }

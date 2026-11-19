@@ -79,7 +79,7 @@ begin
       from c join superlative_days sd on sd.day = c.day join superlative_prompts sp on sp.id = sd.prompt_id
       join profiles p on p.id = c.nominee_id, latest
       where c.day > latest.d - 7 and c.day <= latest.d
-        and c.n = (select max(n) from c c2 where c2.day = c.day)
+        and c.n = (select max(c2.n) from c c2 where c2.day = c.day)
       group by c.day, sp.text)
     select * from wins order by random() limit 2
   loop
