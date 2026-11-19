@@ -3,7 +3,7 @@
 -- [{ icon, text, href }]. Members only. Safe to re-run.
 
 create or replace function public.ticker_ago(t timestamptz) returns text
-language sql stable as $$
+language sql stable set search_path = public as $$
   select case
     when now() - t < interval '1 minute' then 'just now'
     when now() - t < interval '1 hour' then floor(extract(epoch from now() - t) / 60)::int || 'm ago'
