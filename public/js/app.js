@@ -312,61 +312,52 @@ function renderShell() {
 }
 
 // ── Ticker ─────────────────────────────────────────────────
-// A news-style crawl of live chapter stats under the header. Stats come from the
-// `ticker` database function; refreshed every few minutes and after posting/voting.
-let tickerTimer = null, tickerFade = null;
+// A news-style crawl under the header that shows only the seniors' anonymous messages
+// (supabase/senior-ticker.sql), in gold under a rotating "official" label. It's hidden
+// when there are none, and refreshed every few minutes and whenever the app comes back.
+let tickerTimer = null, tickerFade = null, tickerSig = "";
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const SENIOR_LABELS = ["Public service announcement", "Message from your elders", "Word from the top",
+  "The elders have spoken", "Senior advisory", "Hear ye, hear ye"];
+function tickHTML(p) {
+  let h = 0; for (const c of String(p.id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `<span class="tick senior"><span class="tick-icon">📢</span><b>${esc(SENIOR_LABELS[h % SENIOR_LABELS.length])}:</b> ${esc(p.body)}</span>`;
+}
 
 async function loadTicker() {
   const box = document.getElementById("ticker"), track = document.getElementById("ticker-track");
   if (!box) return;
   clearTimeout(tickerTimer);
   tickerTimer = setTimeout(loadTicker, 5 * 60e3);
-  let items, senior = [];
-  try {
-    // Either half can fail on its own; show whatever loaded.
-    [items, senior] = await Promise.all([backend.ticker().catch(() => []), backend.seniorLive?.().catch(() => []) ?? []]);
-  } catch { return; }
-  items = items || [];
-  if (!items.length && !senior.length) { box.hidden = true; return; }
-  // Keep the "today" count first; shuffle the rest so it feels fresh each refresh.
-  const [lead, ...rest] = items.length ? items : [senior.map(seniorTick).shift()];
-  for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
-  // Spread senior messages evenly through the stats so they keep coming around.
-  const sen = (items.length ? senior : senior.slice(1)).map(seniorTick);
-  const list = [lead];
-  const gap = Math.max(1, Math.round(rest.length / (sen.length + 1)));
-  rest.forEach((t, i) => { list.push(t); if ((i + 1) % gap === 0 && sen.length) list.push(sen.shift()); });
-  list.push(...sen);
-  const html = list.map(tickHTML).join('<span class="tick-sep">•</span>');
+  let list;
+  try { list = await backend.seniorLive(); } catch { return; }
+  if (!list?.length) { clearInterval(tickerFade); tickerSig = ""; box.hidden = true; track.innerHTML = ""; return; }
+  // Nothing new since the last look: leave the crawl running where it is.
+  const sig = JSON.stringify([list.map((p) => [p.id, p.body]), innerWidth, reduceMotion()]);
+  if (sig === tickerSig && !box.hidden) return;
+  tickerSig = sig;
   box.hidden = false;
   clearInterval(tickerFade);
   if (reduceMotion()) {
-    // No scrolling: show one item at a time.
+    // No scrolling: show one message at a time.
     let i = 0;
     const show = () => { track.innerHTML = tickHTML(list[i++ % list.length]); };
-    track.classList.add("static"); show(); tickerFade = setInterval(show, 4500);
+    track.classList.add("static"); show();
+    if (list.length > 1) tickerFade = setInterval(show, 4500);
     return;
   }
   track.classList.remove("static");
-  // Two copies back to back make the loop seamless; speed stays ~45px/s however long the content is.
-  track.innerHTML = `<div class="ticker-run">${html}<span class="tick-sep">•</span></div><div class="ticker-run" aria-hidden="true">${html}<span class="tick-sep">•</span></div>`;
-  requestAnimationFrame(() => {
-    const w = track.firstElementChild?.getBoundingClientRect().width || 600;
-    track.style.setProperty("--ticker-dur", `${Math.max(20, w / 45)}s`);
-  });
-}
-
-// Senior messages: anonymous, in gold, under a rotating "official" label.
-const SENIOR_LABELS = ["Public service announcement", "Message from your elders", "Word from the top",
-  "The elders have spoken", "Senior advisory", "Hear ye, hear ye"];
-function seniorTick(p) {
-  let h = 0; for (const c of String(p.id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return { senior: true, label: SENIOR_LABELS[h % SENIOR_LABELS.length], text: p.body };
-}
-function tickHTML(t) {
-  if (t.senior) return `<span class="tick senior"><span class="tick-icon">📢</span><b>${esc(t.label)}:</b> ${esc(t.text)}</span>`;
-  return `<a class="tick" href="${esc(t.href || "#/")}"><span class="tick-icon">${esc(t.icon)}</span>${esc(t.text)}</a>`;
+  const set = list.map((p) => tickHTML(p) + '<span class="tick-sep">•</span>').join("");
+  // One short message is narrower than the screen, so repeat the set until a run fills it.
+  // (If the ticker can't be measured right now, e.g. the keyboard is up, estimate from the text.)
+  track.innerHTML = `<div class="ticker-run">${set}</div>`;
+  const w = track.firstElementChild.getBoundingClientRect().width
+    || list.reduce((n, p) => n + 260 + p.body.length * 7.5, 0);
+  const reps = Math.max(1, Math.ceil(innerWidth / w));
+  const run = set.repeat(reps);
+  // Two identical runs back to back make the loop seamless; speed stays ~45px/s.
+  track.innerHTML = `<div class="ticker-run">${run}</div><div class="ticker-run" aria-hidden="true">${run}</div>`;
+  track.style.setProperty("--ticker-dur", `${Math.max(8, (w * reps) / 45)}s`);
 }
 
 function setupTickerPause() {
@@ -1180,7 +1171,6 @@ async function renderDaily(view, alive) {
         document.querySelector('.nav a[data-tab="daily"]')?.classList.remove("dot");
         toast("Vote locked in 🤫"); drawCard();
         setTimeout(checkAchievements, 1500);
-        loadTicker();
       } catch (x) { toast(x.message); draw(); }
     };
   }

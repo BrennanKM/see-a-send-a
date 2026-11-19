@@ -240,12 +240,6 @@ export function createSupabaseBackend(cfg) {
       return data ?? [];
     },
 
-    async ticker() {
-      const { data, error } = await sb.rpc("ticker");
-      if (error) throw error;
-      return Array.isArray(data) ? data : [];
-    },
-
     // Senior messages (supabase/senior-ticker.sql). Authors are never sent to members.
     async seniorLive() {
       const { data, error } = await sb.rpc("senior_live");

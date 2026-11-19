@@ -1,4 +1,6 @@
--- See a Send a — the ticker
+-- See a Send a — the stats ticker (NOT SHOWN IN THE APP since 2026-11-19)
+-- The feed's ticker now shows only senior messages (senior-ticker.sql). This function is
+-- kept, and still works, in case the stats come back.
 -- One call returns a list of fun, current chapter stats for the scrolling ticker:
 -- [{ icon, text, href }]. Members only. Safe to re-run.
 

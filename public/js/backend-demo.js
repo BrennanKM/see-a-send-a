@@ -243,27 +243,6 @@ export function createDemoBackend() {
       const seen = new Set();
       return out.filter((a) => !seen.has(a.key) && seen.add(a.key)).sort((a, b) => a.earned_at.localeCompare(b.earned_at));
     },
-    // Demo version of supabase/ticker.sql (a subset of the same items).
-    async ticker() {
-      const name = (id) => members.find((m) => m.id === id)?.display_name ?? "Someone";
-      const sorted = snipes.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
-      const todayN = snipes.filter((s) => s.created_at.slice(0, 10) === iso(new Date())).length;
-      const items = [{ icon: "🎯", href: "#/", text: todayN ? `${todayN} snipe${todayN === 1 ? "" : "s"} so far today` : "No snipes yet today. Someone get it started." }];
-      const last = sorted[0];
-      if (last) items.push({ icon: "⏱️", href: `#/snipe/${last.id}`, text: `Latest: ${name(last.sniper_id)} sniped ${last.target_ids.map(name).join(" & ")}` });
-      const week = snipes.filter((s) => Date.now() - new Date(s.created_at) < 7 * 864e5), by = {};
-      for (const s of week) by[s.sniper_id] = (by[s.sniper_id] || 0) + 1;
-      const top = Object.entries(by).sort((a, b) => b[1] - a[1])[0];
-      if (top && top[1] >= 2) items.push({ icon: "🔥", href: `#/u/${top[0]}`, text: `Top sniper this week: ${name(top[0])} (${top[1]})` });
-      if (bounty) items.push({ icon: "🏆", href: "#/bounty", text: `Bounty: ${name(bounty.target_id)} is worth ${value(bounty.started_at)} pts` });
-      const d = slRow(iso(new Date()));
-      items.push({ icon: "🗳️", href: "#/daily", text: `Today's Daily: ${d.prompt} · ${d.total_votes} vote${d.total_votes === 1 ? "" : "s"}` });
-      const g = snipes.find((s) => s.golden && Date.now() - new Date(s.created_at) < 7 * 864e5);
-      items.push(g ? { icon: "✨", href: `#/snipe/${g.id}`, text: `${name(g.sniper_id)} hit this week's Golden Snipe` } : { icon: "✨", href: "#/", text: "This week's Golden Snipe is still out there…" });
-      items.push({ icon: "👑", href: "#/daily", text: `${name("u4")} was voted most likely to show up late to chapter` });
-      items.push({ icon: "📈", href: "#/leaders", text: `${snipes.length} snipes all time` });
-      return items;
-    },
     // Senior messages: same rules as supabase/senior-ticker.sql. u0 (you) and u3 start as seniors.
     async seniorLive() { return seniorPosts.filter(liveSP).map(({ id, body }) => ({ id, body })); },
     async seniorStatus() {
