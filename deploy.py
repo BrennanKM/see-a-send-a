@@ -48,6 +48,11 @@ def main():
             sys.exit(f"Couldn't create project: {r.get('errors')}")
         print("Created Pages project", PROJECT)
 
+    # A fresh version stamp each deploy; open apps compare it on resume and reload when it changes.
+    import time
+    with open(os.path.join(PUBLIC, "version.json"), "w") as f:
+        json.dump({"v": str(int(time.time()))}, f)
+
     files = {}
     for d, _, names in os.walk(PUBLIC):
         for n in names:

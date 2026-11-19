@@ -1624,8 +1624,23 @@ async function renderRoster(view, alive) {
 
 // ── App lifecycle & iOS polish ─────────────────────────────
 let hiddenAt = 0;
+// Home Screen apps on iPhone are paused, not restarted, so they can run old code for days.
+// On resume, compare the deployed version with the one we loaded and reload if it changed.
+let loadedVersion = null;
+const fetchVersion = () => fetch("version.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => j?.v ?? null).catch(() => null);
+fetchVersion().then((v) => { loadedVersion = v; });
+async function checkForUpdate() {
+  const v = await fetchVersion();
+  if (!v || !loadedVersion || v === loadedVersion) return;
+  // Never yank someone out of writing a post, comment, or message.
+  const busy = document.querySelector(".compose, .overlay") || [...document.querySelectorAll("textarea, input")].some((el) => el.value && el.offsetParent);
+  if (busy) return;
+  location.reload();
+}
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
+  checkForUpdate();
   if (state.me) checkBlackout();
   // Signed photo links last 6h; refresh anything older than 20 min unless the person is mid-post.
   if (state.me && hiddenAt && Date.now() - hiddenAt > 20 * 60e3 && !document.querySelector(".compose, .overlay")) refreshAll();

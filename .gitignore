@@ -6,3 +6,4 @@ print/
 .cloudflare-account
 __pycache__/
 *.pyc
+public/version.json
