@@ -1,5 +1,5 @@
 // Offline shell + push notifications.
-const CACHE = "sasa-v15";
+const CACHE = "sasa-v16";
 const SHELL = ["./", "index.html", "styles.css", "config.js", "js/app.js", "js/images.js", "js/backend-supabase.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

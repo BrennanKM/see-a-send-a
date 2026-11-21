@@ -194,7 +194,7 @@ function renderLogin() {
       <p class="err" id="login-err"></p>
       <div id="fix-email" hidden style="margin:-4px 0 10px"></div>
       <button type="button" class="btn block" id="resend" hidden style="margin-top:4px">Resend code</button>
-      <p class="fine" id="resend-hint" hidden style="color:var(--muted);font-size:13px;margin:10px 0 0">Not there? Check Junk, and in Outlook check <b>Other</b> too. Codes come from snipes@juniorjobhunt.com.</p>
+      <p class="fine" id="resend-hint" hidden style="color:var(--muted);font-size:13px;margin:10px 0 0">Not there? Check Junk, and in Outlook check <b>Other</b> too. Codes come from martinventuresdev@gmail.com (sender name "See a Send a").</p>
       <button type="button" class="linkish" id="restart" hidden>Use a different email</button>
       ${backend.demo ? `<p class="lede" style="margin-top:18px">Demo mode: any email, any ${CONFIG.OTP_LENGTH} digits. Chapter code: DSP-DEMO.</p>` : ""}
     </form>`;
